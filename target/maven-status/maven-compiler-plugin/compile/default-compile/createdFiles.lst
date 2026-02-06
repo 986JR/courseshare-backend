@@ -1,0 +1,4 @@
+backend\courseshare\CourseshareApplication.class
+backend\courseshare\repository\UserRepository.class
+backend\courseshare\service\Userservice.class
+backend\courseshare\entity\Users.class
