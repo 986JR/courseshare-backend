@@ -12,6 +12,7 @@ import backend.courseshare.repository.EnrollmentRepository;
 import backend.courseshare.repository.FileResourceRepository;
 import backend.courseshare.storage.FileStorageService;
 
+import backend.courseshare.storage.SupabaseStorageService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.mail.SimpleMailMessage;
@@ -26,14 +27,14 @@ public class FileResourceService {
     private final FileResourceRepository fileResourceRepository;
     private final CourseRepository courseRepository;
     private final EnrollmentRepository enrollmentRepository;
-    private final FileStorageService storageService;
+    private final SupabaseStorageService storageService;
     private final EmailService emailService;
 
     public FileResourceService(
             FileResourceRepository fileResourceRepository,
             CourseRepository courseRepository,
             EnrollmentRepository enrollmentRepository,
-            FileStorageService storageService,
+            SupabaseStorageService storageService,
             EmailService emailService
     ) {
         this.fileResourceRepository = fileResourceRepository;
@@ -77,17 +78,17 @@ public class FileResourceService {
         fileResourceRepository.save(fr);
         /*String body = "Thank You Very much for Contributing to CourseSahere, Welcome Back, And Upload more";
         emailService.sendEmail(uploader.getEmail(),"Thank You For uploading",body);*/
-        return toResponse(fr);
+        return toResponse(fr,uploader);
     }
 
-    public FileResourceListResponse getFilesByCourse(String code, int page, int size) {
+    public FileResourceListResponse getFilesByCourse(String code, int page, int size, Users users) {
         Page<FileResource> result = fileResourceRepository.findByCourse_CourseCode(
                 code,
                 PageRequest.of(page, size)
         );
 
         return new FileResourceListResponse(
-                result.stream().map(this::toResponse).toList(),
+                result.stream().map(f -> toResponse(f, users)).toList(),
                 result.getNumber(),
                 result.getSize(),
                 result.getTotalElements(),
@@ -98,13 +99,26 @@ public class FileResourceService {
 
 
 
-    private FileResourceResponse toResponse(FileResource f) {
+    private FileResourceResponse toResponse(FileResource f, Users user) {
+
+        boolean isAdmin = user.getRole().equals("ADMIN");
+
+        boolean isEnrolled = enrollmentRepository
+                .existsByUser_IdAndCourse_Id(user.getId(), f.getCourse().getId());
+
+        if (!isAdmin && !isEnrolled) {
+            throw new IllegalArgumentException("Not allowed to access this file");
+        }
+
+        //Generate signed URL
+        String signedUrl = storageService.createSignedUrl(f.getFileUrl());
+
         return new FileResourceResponse(
                 f.getPublicId(),
                 f.getFilename(),
                 f.getFileType(),
                 f.getDescription(),
-                f.getFileUrl(),
+                signedUrl,                 // ← NOW secure
                 f.getUploadedBy().getUsername(),
                 f.getCourse().getCourseCode(),
                 f.getUploadedAt().toString(),
@@ -112,13 +126,14 @@ public class FileResourceService {
         );
     }
 
-    public FileResourceListResponse searchFiles(String query, int page, int size) {
+
+    public FileResourceListResponse searchFiles(String query, int page, int size,Users users) {
         System.out.println("SEARCH QUERY = " + query);
 
         Page<FileResource> result = fileResourceRepository.searchFiles(query, PageRequest.of(page, size));
 
         return  new FileResourceListResponse(
-                result.stream().map(this::toResponse).toList(),
+                result.stream().map(f -> toResponse(f, users)).toList(),
                 result.getNumber(),
                 result.getSize(),
                 result.getTotalElements(),
@@ -127,7 +142,7 @@ public class FileResourceService {
         );
     }
 
-    public FileResourceListResponse listMyUploads(String userPublicId, int page, int size) {
+    public FileResourceListResponse listMyUploads(String userPublicId, int page, int size, Users users) {
 
         Page<FileResource> result =
                 fileResourceRepository.findByUploadedBy_PublicIdOrderByUploadedAtDesc(
@@ -135,7 +150,7 @@ public class FileResourceService {
                 );
 
         return new FileResourceListResponse(
-                result.stream().map(this::toResponse).toList(),
+                result.stream().map(f -> toResponse(f, users)).toList(),
                 result.getNumber(),
                 result.getSize(),
                 result.getTotalElements(),
@@ -143,6 +158,31 @@ public class FileResourceService {
                 result.isLast()
         );
     }
+
+    public String getDownloadUrl(String publicId, Users user) {
+
+        FileResource file = fileResourceRepository.findByPublicId(publicId)
+                .orElseThrow(() -> new IllegalArgumentException("File not found"));
+
+        boolean isAdmin = user.getRole().equals("ADMIN");
+
+        boolean isEnrolled = enrollmentRepository
+                .existsByUser_IdAndCourse_Id(user.getId(), file.getCourse().getId());
+
+        if (!isAdmin && !isEnrolled) {
+            throw new IllegalArgumentException("Not allowed to access this file");
+        }
+
+        return storageService.createSignedUrl(file.getFileUrl());
+    }
+
+    public void delete(FileResource resource) {
+
+        storageService.deleteFile(resource.getFileUrl());
+
+        fileResourceRepository.delete(resource);
+    }
+
 
 
 

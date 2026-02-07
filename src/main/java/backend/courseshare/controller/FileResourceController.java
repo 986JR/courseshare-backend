@@ -11,6 +11,7 @@ import backend.courseshare.repository.FileResourceRepository;
 import backend.courseshare.security.CustomUserDetails;
 import backend.courseshare.service.FileResourceService;
 import backend.courseshare.storage.FileStorageService;
+import org.apache.catalina.User;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -60,61 +61,65 @@ public class FileResourceController {
     public ResponseEntity<FileResourceListResponse> listFiles(
             @PathVariable String courseCode,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal CustomUserDetails principal
     ) {
-        return ResponseEntity.ok(fileResourceService.getFilesByCourse(courseCode,page,size));
+        return ResponseEntity.ok(fileResourceService.getFilesByCourse(courseCode,page,size,principal.getUser()));
     }
 
     //Download
-    @GetMapping("/{publicId}/download")
-    public ResponseEntity<InputStreamResource> download(@PathVariable String publicId) throws IOException {
-
-        FileResource resource = fileResourceRepository.findByPublicId(publicId).orElseThrow(() -> new IllegalArgumentException("File Not Found"));
-
-        Path filePath = Path.of("uploads").resolve(resource.getCourse().getCourseCode()).resolve(resource.getFilename()).toAbsolutePath();
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resource.getFilename() + "\"");
-
-        return ResponseEntity.ok()
-                .headers(headers)
-                .contentLength(Files.size(filePath))
-                .contentType(MediaType.parseMediaType(resource.getFileType()))
-                .body(new InputStreamResource(Files.newInputStream(filePath)));
-    }
+//    @GetMapping("/{publicId}/download")
+//    public ResponseEntity<InputStreamResource> download(@PathVariable String publicId) throws IOException {
+//
+//        FileResource resource = fileResourceRepository.findByPublicId(publicId).orElseThrow(() -> new IllegalArgumentException("File Not Found"));
+//
+//        Path filePath = Path.of("uploads").resolve(resource.getCourse().getCourseCode()).resolve(resource.getFilename()).toAbsolutePath();
+//
+//        HttpHeaders headers = new HttpHeaders();
+//        headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resource.getFilename() + "\"");
+//
+//        return ResponseEntity.ok()
+//                .headers(headers)
+//                .contentLength(Files.size(filePath))
+//                .contentType(MediaType.parseMediaType(resource.getFileType()))
+//                .body(new InputStreamResource(Files.newInputStream(filePath)));
+//    }
 
     //delete
     @DeleteMapping("/{publicId}")
     public ResponseEntity<?> delete(
-            @PathVariable String publicId, @AuthenticationPrincipal CustomUserDetails userDetails
-    ) throws IOException {
+            @PathVariable String publicId,
+            @AuthenticationPrincipal CustomUserDetails userDetails
+    ) {
+
         FileResource resource = fileResourceRepository.findByPublicId(publicId)
                 .orElseThrow(() -> new IllegalArgumentException("This File is Not Found"));
 
         Users caller = userDetails.getUser();
+
         boolean isOwner = resource.getUploadedBy().getId().equals(caller.getId());
         boolean isAdmin = caller.getRole().equals("ADMIN");
 
-        if(!isOwner && !isAdmin) {
+        if (!isOwner && !isAdmin) {
             return ResponseEntity.status(403).body("You are Not Allowed To Delete This File");
         }
 
-        //remove from Storege
-        Path filePath = Path.of("uploads").resolve(resource.getCourse().getCourseCode()).resolve(resource.getFilename());
-        Files.deleteIfExists(filePath);
+        // 🔥 DELETE from Supabase
+        fileResourceService.delete(resource);
 
-        return ResponseEntity.ok("Deleted Succefully");
-
+        return ResponseEntity.ok("Deleted Successfully");
     }
+
 
     //Search
     @GetMapping("/search")
     public  ResponseEntity<FileResourceListResponse> searchFiles(
             @RequestParam String query,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal CustomUserDetails principal
     ) {
-        return ResponseEntity.ok(fileResourceService.searchFiles(query,page, size));
+        return ResponseEntity.ok(fileResourceService.searchFiles(query,page, size,principal.getUser()));
     }
 
     @GetMapping("/me")
@@ -122,12 +127,26 @@ public class FileResourceController {
             @AuthenticationPrincipal CustomUserDetails principal,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
-    ) {
+            ) {
         if (principal == null) return ResponseEntity.status(401).build();
 
-        var response = fileResourceService.listMyUploads(principal.getPublicId(), page, size);
+        var response = fileResourceService.listMyUploads(principal.getPublicId(), page, size,principal.getUser());
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/{publicId}/download")
+    public ResponseEntity<String> download(
+            @PathVariable String publicId,
+            @AuthenticationPrincipal CustomUserDetails userDetails
+    ) {
+
+        Users user = userDetails.getUser();
+
+        String signedUrl = fileResourceService.getDownloadUrl(publicId, user);
+
+        return ResponseEntity.ok(signedUrl);
+    }
+
 
 
 }
