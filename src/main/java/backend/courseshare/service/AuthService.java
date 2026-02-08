@@ -47,9 +47,20 @@ public class AuthService {
         Users created = userservice.createUser(user);
 
 
-        emailService.sendEmail(created.getEmail(),"Welcome To CourseShare","Thank You for Joining CourseShare," +
-                "\nKeep Sharing and recommend our system to your friends\n\n check us on WhatsApp at https://wa.me/765681723" +
-                "\n ShareMind "+created.getUsername());
+        try {
+            emailService.sendEmail(
+                    created.getEmail(),
+                    "Welcome To CourseShare",
+                    "Thank You for Joining CourseShare," +
+                            "\nKeep Sharing and recommend our system to your friends\n\n" +
+                            "Check us on WhatsApp at https://wa.me/765681723" +
+                            "\nShareMind " + created.getUsername()
+            );
+        } catch (Exception e) {
+            // log the error but do not block registration
+            System.err.println("Email sending failed: " + e.getMessage());
+            e.printStackTrace();
+        }
         return new RegisterResponseDTO(
                 created.getPublicId(),
                 created.getUsername(),
