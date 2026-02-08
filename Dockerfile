@@ -15,7 +15,7 @@ COPY src src
 RUN ./mvnw package -DskipTests
 
 # Copy environment file (optional, if you want .env in container)
-COPY .env .env
+#COPY .env .env
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "target/courseshare-0.0.1-SNAPSHOT.jar"]
