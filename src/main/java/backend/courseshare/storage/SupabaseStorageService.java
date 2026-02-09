@@ -37,19 +37,30 @@ public class SupabaseStorageService {
             throw new IllegalArgumentException("Invalid file name");
         }
 
+        // sanitize spaces (important)
+        filename = filename.replace(" ", "-");
+        courseCode = courseCode.replace(" ", "-");
+
         String path = courseCode + "/" + filename;
 
         webClient.post()
                 .uri("/storage/v1/object/" + bucket + "/" + path)
                 .header("apikey", serviceRoleKey)
                 .header("Authorization", "Bearer " + serviceRoleKey)
+                .header("Content-Type", file.getContentType())   // ⭐ CRITICAL FIX
                 .bodyValue(file.getBytes())
                 .retrieve()
+                .onStatus(
+                        status -> status.isError(),
+                        response -> response.bodyToMono(String.class)
+                                .map(body -> new RuntimeException("Supabase error: " + body))
+                )
                 .toBodilessEntity()
                 .block();
 
-        return path; // store only relative path in DB
+        return path;
     }
+
 
     // ================= SIGNED URL =================
     public String createSignedUrl(String filePath) {
